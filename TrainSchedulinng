@@ -1,0 +1,231 @@
+import java.util.ArrayList;
+import java.util.List;
+
+// Represents a train with its details and journey status
+class Train {
+    private int id;
+    private String destination;
+    private String status;
+    private int platform;
+    private int departureTime;
+    private int arrivalTime;
+
+    // Constructor initializes train details and sets times
+    public Train(int id, String destination, int platform) {
+        this.id = id;
+        this.destination = destination;
+        this.status = "on route";
+        this.platform = platform;
+        this.departureTime = (int) (System.currentTimeMillis() / 1000);
+        this.arrivalTime = departureTime - 3000; // Example: arrival time before departure
+    }
+
+    // Getters for train properties
+    public int getId() {
+        return id;
+    }
+
+    public String getDestination() {
+        return destination;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public int getPlatform() {
+        return platform;
+    }
+
+    public int getDepartureTime() {
+        return departureTime;
+    }
+
+    public int getArrivalTime() {
+        return arrivalTime;
+    }
+
+    public String getDepartureTimeStr() {
+        return convertSecondsToString(departureTime);
+    }
+
+    public String getArrivalTimeStr() {
+        return convertSecondsToString(arrivalTime);
+    }
+
+    // Converts seconds to HH:mm format
+    private String convertSecondsToString(int seconds) {
+        int hours = (seconds / 3600) % 24;
+        int minutes = (seconds % 3600) / 60;
+        return String.format("%02d:%02d", hours, minutes);
+    }
+
+    public void completeJourney() {
+        this.status = "completed journey";
+    }
+
+    public void cancelJourney() {
+        this.status = "cancelled";
+    }
+}
+
+// Manages train scheduling, cancellation, and platform assignments
+class TrainScheduler {
+    private List<Train> trainList;
+    private final int[] platformAvailability;
+    private List<String> historyLog;
+
+    // Constructor initializes data structures
+    public TrainScheduler(int numberOfPlatforms) {
+        this.trainList = new ArrayList<>();
+        this.platformAvailability = new int[numberOfPlatforms];
+        this.historyLog = new ArrayList<>();
+    }
+
+    // Schedules a train if the platform is available
+    public synchronized boolean scheduleTrain(Train train) {
+        int platform = train.getPlatform() - 1;
+
+        if (platform >= 0 && platform < platformAvailability.length && 
+            platformAvailability[platform] <= (int) (System.currentTimeMillis() / 1000)) {
+            trainList.add(train);
+            platformAvailability[platform] = train.getArrivalTime() + 300; // Reserve platform for some time
+            historyLog.add("[SCHEDULED] " + System.currentTimeMillis() + " - Train " + train.getId() + " scheduled for platform " + train.getPlatform());
+            return true;
+        }
+
+        System.out.println("[SIM] Cannot schedule Train " + train.getId() + " - Platform " + train.getPlatform() + " is occupied until " + platformAvailability[platform]);
+        return false;
+    }
+
+    // Cancels a train and frees up the platform
+    public synchronized void cancelTrain(int trainId) {
+        Train trainToRemove = null;
+        for (Train train : trainList) {
+            if (train.getId() == trainId) {
+                trainToRemove = train;
+                train.cancelJourney();
+                break;
+            }
+        }
+        // Remove train and update platform if found
+        if (trainToRemove != null) {
+            trainList.remove(trainToRemove);
+            int platform = trainToRemove.getPlatform() - 1;
+            if (platform >= 0 && platform < platformAvailability.length) {
+                platformAvailability[platform] = 0;
+            }
+            historyLog.add("[CANCELLED] " + System.currentTimeMillis() + " - Train " + trainId + " was cancelled.");
+            System.out.println("[SIM] Train " + trainId + " cancelled.");
+        } else {
+            System.out.println("[SIM] Train " + trainId + " not found for cancellation.");
+        }
+    }
+
+    // Displays all currently scheduled trains
+    public synchronized void viewTrainSchedules() {
+        System.out.println("[SCHEDULE] Current Train Schedules:");
+        for (Train train : trainList) {
+            if (!train.getStatus().equals("cancelled")) {
+                System.out.println("Train ID: " + train.getId() +
+                        ", Destination: " + train.getDestination() +
+                        ", Status: " + train.getStatus() +
+                        ", Platform: " + train.getPlatform() +
+                        ", Departure: " + train.getDepartureTimeStr() +
+                        ", Arrival: " + train.getArrivalTimeStr());
+            }
+        }
+    }
+
+    // Shows the history of scheduling and cancellation events
+    public synchronized void viewHistoryLog() {
+        System.out.println("[HISTORY] Train Operations History:");
+        for (String entry : historyLog) {
+            System.out.println(entry);
+        }
+    }
+
+    public void logEvent(String event) {
+        historyLog.add(event);
+    }
+}
+
+// Simulates the operation of a train journey in a separate thread
+class TrainOperation implements Runnable {
+    private Train train;
+    private TrainScheduler scheduler;
+
+    public TrainOperation(Train train, TrainScheduler scheduler) {
+        this.train = train;
+        this.scheduler = scheduler;
+    }
+
+    @Override
+    public void run() {
+        try {
+            // Log and simulate train departure
+            scheduler.logEvent("[STARTED] " + System.currentTimeMillis() + " - Train " + train.getId() + " started journey from platform " + train.getPlatform());
+            System.out.println("[SIM] Train " + train.getId() + " departing from platform " + train.getPlatform() + " to " + train.getDestination());
+            Thread.sleep(2000); // Simulate travel time
+
+            // If train not cancelled, mark as completed
+            if (!train.getStatus().equals("cancelled")) {
+                train.completeJourney();
+                scheduler.logEvent("[COMPLETED] " + System.currentTimeMillis() + " - Train " + train.getId() + " completed journey and arrived at " + train.getDestination());
+                System.out.println("[SIM] Train " + train.getId() + " completed journey and arriving at " +
+                        train.getDestination() + " on platform " +
+                        train.getPlatform() + " (Arrival: " +
+                        train.getArrivalTimeStr() + ")");
+            }
+
+        } catch (InterruptedException e) {
+            // Handle thread interruption
+            System.err.println("[ERROR] Train " + train.getId() + " has been interrupted: " + e.getMessage());
+            scheduler.logEvent("[INTERRUPTED] " + System.currentTimeMillis() + " - Train " + train.getId() + " was interrupted");
+        } catch (Exception e) {
+            System.err.println("[ERROR] An error occurred with train " + train.getId() + ": " + e.getMessage());
+            scheduler.logEvent("[ERROR] " + System.currentTimeMillis() + " - Train " + train.getId() + " encountered an error: " + e.getMessage());
+        }
+    }
+}
+
+// Main class to run the train scheduling simulation
+public class Main {
+    public static void main(String[] args) {
+        TrainScheduler scheduler = new TrainScheduler(3); // Create scheduler with 3 platforms
+        List<Thread> threads = new ArrayList<>();
+
+        // Schedule 6 trains
+        for (int i = 0; i < 6; i++) {
+            int trainId = i + 1;
+            String destination = "Destination " + trainId;
+            int platform = (trainId % 3) + 1;
+
+            Train train = new Train(trainId, destination, platform);
+            if (scheduler.scheduleTrain(train)) {
+                TrainOperation operation = new TrainOperation(train, scheduler);
+                Thread trainThread = new Thread(operation);
+                threads.add(trainThread);
+                trainThread.start();
+            }
+        }
+
+        // Display current schedules
+        scheduler.viewTrainSchedules();
+
+        // Cancel train with ID 3 for demonstration
+        scheduler.cancelTrain(3);
+
+        // Wait for all train threads to finish
+        for (Thread thread : threads) {
+            try {
+                thread.join();
+            } catch (InterruptedException e) {
+                System.err.println("[ERROR] Main thread interrupted: " + e.getMessage());
+            }
+        }
+        // Show history of all operations
+        scheduler.viewHistoryLog();
+        System.out.println("[SIM] All trains have completed their journeys.");
+    }
+}
